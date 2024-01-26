@@ -3,10 +3,25 @@ import helpers
 from torch import nn
 from torch import optim
 from torch.utils.data import DataLoader
-from torch.nn.functional import cross_entropy
+import numpy as np
+
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
+# Set a seed value
+seed = 42 
+
+# Set the seed for generating random numbers in PyTorch
+torch.manual_seed(seed)
+
+# Set the seed for NumPy (used in various data preprocessing steps)
+np.random.seed(seed)
+
+
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 def unlearning_finetuning(model, retain, epochs):
     
@@ -30,7 +45,7 @@ def unlearning_finetuning(model, retain, epochs):
     model.eval()
     return model
 
-def unlearning_EWCU(model, retain, forget, epochs, threshold=0.0001):
+def unlearning_EWCU(model, retain, forget, epochs, threshold=0.00001):
     epochs = epochs
 
     criterion = nn.CrossEntropyLoss()
@@ -38,10 +53,10 @@ def unlearning_EWCU(model, retain, forget, epochs, threshold=0.0001):
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     model.train()
 
-    print('Computing EFIM')
+    #print('Computing EFIM')
     efim = helpers.EFIM(model, forget)
-    print('EFIM Computed')
-    threshold = threshold
+    #print('EFIM Computed')
+    
     parameters_to_freeze, _ = helpers.get_parameters_with_small_norm(efim, threshold)
     parameters_to_freeze = [param for param in parameters_to_freeze if param not in ['fc.weight', 'fc.bias']]
 
@@ -61,3 +76,34 @@ def unlearning_EWCU(model, retain, forget, epochs, threshold=0.0001):
     model.eval()
     return model
 
+def unlearning_EWCU_2(model, retain, forget, epochs, threshold=0.01):
+    epochs = epochs
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    model.train()
+
+    #print('Computing EFIM')
+    efim = helpers.EFIM(model, forget)
+    #print('EFIM Computed')
+    agg_efim = helpers.aggregatedEFIM(efim)
+    
+    parameters_to_freeze = helpers.params_below_threshold(agg_efim, threshold)
+    parameters_to_freeze = [param for param in parameters_to_freeze if param not in ['fc.weight', 'fc.bias']]
+
+    helpers.freeze_parameters(model, parameters_to_freeze)
+
+
+    for _ in range(epochs):
+        for inputs, targets in retain:
+            inputs, targets = inputs.to(DEVICE), targets.to(DEVICE)
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, targets)
+            loss.backward()
+            optimizer.step()
+        scheduler.step()
+
+    model.eval()
+    return model

@@ -9,7 +9,10 @@ import subprocess
 import requests
 from evaluation import accuracy, eval_mia, simple_mia, compute_losses
 from methods import unlearning_finetuning
-from methods import unlearning_EWCU
+from methods import unlearning_EWCU, unlearning_EWCU_2
+import time
+from helpers import count_frozen_parameters, aggregatedEFIM, EFIM
+
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print("Running on device:", DEVICE.upper())
@@ -93,22 +96,56 @@ print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
 eval_mia(model, train_loader, test_loader, forget_loader)
 print('\n')
 
+
 print('---------Unlearned model----------')
 model = resnet18(weights=None, num_classes=10)
 model.load_state_dict(weights_pretrained)
 model.to(DEVICE)
+
+start_time = time.time()
 model_1 = unlearning_finetuning(model, retain_loader, 5)
-print(f"Train set accuracy: {100.0 * accuracy(model, train_loader):0.1f}%")
-print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
-eval_mia(model, train_loader, test_loader, forget_loader)
+end_time = time.time()
+elapsed_time = end_time - start_time
+
+print(f"Elapsed time: {elapsed_time} seconds")
+print(f"Train set accuracy: {100.0 * accuracy(model_1, train_loader):0.1f}%")
+print(f"Test set accuracy: {100.0 * accuracy(model_1, test_loader):0.1f}%")
+eval_mia(model_1, train_loader, test_loader, forget_loader)
 print('\n')
+
 
 print('---------Unlearned model 2----------')
 model = resnet18(weights=None, num_classes=10)
 model.load_state_dict(weights_pretrained)
 model.to(DEVICE)
+
+start_time = time.time()
 model_2 = unlearning_EWCU(model, retain_loader, forget_loader, 5)
-print(f"Train set accuracy: {100.0 * accuracy(model, train_loader):0.1f}%")
-print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
-eval_mia(model, train_loader, test_loader, forget_loader)
+end_time = time.time()
+elapsed_time = end_time - start_time
+num_frozen_parameters = count_frozen_parameters(model_2)
+
+print(f"number of frozen parameters: {num_frozen_parameters}")
+print(f"Elapsed time: {elapsed_time} seconds")
+print(f"Train set accuracy: {100.0 * accuracy(model_2, train_loader):0.1f}%")
+print(f"Test set accuracy: {100.0 * accuracy(model_2, test_loader):0.1f}%")
+eval_mia(model_2, train_loader, test_loader, forget_loader)
+print('\n')
+
+print('---------Unlearned model 3----------')
+model = resnet18(weights=None, num_classes=10)
+model.load_state_dict(weights_pretrained)
+model.to(DEVICE)
+
+start_time = time.time()
+model_3 = unlearning_EWCU_2(model, retain_loader, forget_loader, 5)
+end_time = time.time()
+elapsed_time = end_time - start_time
+num_frozen_parameters = count_frozen_parameters(model_3)
+
+print(f"number of frozen parameters: {num_frozen_parameters}")
+print(f"Elapsed time: {elapsed_time} seconds")
+print(f"Train set accuracy: {100.0 * accuracy(model_3, train_loader):0.1f}%")
+print(f"Test set accuracy: {100.0 * accuracy(model_3, test_loader):0.1f}%")
+eval_mia(model_3, train_loader, test_loader, forget_loader)
 print('\n')
