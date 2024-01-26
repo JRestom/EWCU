@@ -8,7 +8,7 @@ from torch.nn.functional import cross_entropy
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-def unlearning_finetuning(model, retain, forget, validation, epochs):
+def unlearning_finetuning(model, retain, epochs):
     
     epochs = epochs
 
@@ -30,7 +30,7 @@ def unlearning_finetuning(model, retain, forget, validation, epochs):
     model.eval()
     return model
 
-def unlearning_EWCU(model, retain, forget, epochs, threshold):
+def unlearning_EWCU(model, retain, forget, epochs, threshold=0.0001):
     epochs = epochs
 
     criterion = nn.CrossEntropyLoss()

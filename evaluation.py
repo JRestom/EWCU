@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 import numpy as np
 from sklearn import linear_model, model_selection
