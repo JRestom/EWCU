@@ -30,7 +30,7 @@ def unlearning_finetuning(model, retain, forget, validation, epochs):
     model.eval()
     return model
 
-def unlearning_EWCU(model, retain, forget, validation, epochs, threshold):
+def unlearning_EWCU(model, retain, forget, epochs, threshold):
     epochs = epochs
 
     criterion = nn.CrossEntropyLoss()
