@@ -3,6 +3,8 @@ from torch import nn
 from torch import optim
 from torch.utils.data import DataLoader
 from torch.nn.functional import cross_entropy
+import numpy as np
+import torch.nn.functional as F
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -69,6 +71,169 @@ def aggregatedEFIM(efim):
    aggregated_efim = {name: efim[name].sum().item() for name in efim}
    aggregated_efim = sorted(aggregated_efim.items(), key=lambda x: x[1], reverse=True)
    return aggregated_efim
+
+#this is from https://github.com/ojus1/SmoothedGradientDescentAscent/blob/main/SGDA.py
+#Specific for mix-max problems
+
+def avg_fn(averaged_model_parameter, model_parameter, num_averaged):
+  beta = 0.1
+  return (1 - beta) * averaged_model_parameter + beta * model_parameter
+
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+        
+class DistillKL(nn.Module):
+    """Distilling the Knowledge in a Neural Network"""
+    def __init__(self, T):
+        super(DistillKL, self).__init__()
+        self.T = T
+
+    def forward(self, y_s, y_t):
+        p_s = F.log_softmax(y_s/self.T, dim=1)
+        p_t = F.softmax(y_t/self.T, dim=1)
+        loss = F.kl_div(p_s, p_t, size_average=False) * (self.T**2) / y_s.shape[0]
+        return loss
+    
+
+def adjust_learning_rate(epoch, lr_decay_rate, sgda_learning_rate , lr_decay_epochs , optimizer):
+    """Sets the learning rate to the initial LR decayed by decay rate every steep step"""
+    steps = np.sum(epoch > np.asarray(lr_decay_epochs))
+    new_lr = sgda_learning_rate
+    if steps > 0:
+        new_lr = sgda_learning_rate * (lr_decay_rate ** steps)
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = new_lr
+    return new_lr
+
+
+def param_dist(model, swa_model, p):
+    #This is from https://github.com/ojus1/SmoothedGradientDescentAscent/blob/main/SGDA.py
+    dist = 0.
+    for p1, p2 in zip(model.parameters(), swa_model.parameters()):
+        dist += torch.norm(p1 - p2, p='fro')
+    return p * dist
+
+def train_distill(epoch, train_loader, module_list, swa_model, criterion_list, optimizer, distill, gamma, alpha, beta, smoothing, split, quiet=True, bt=False, rf_t=False):
+    """One epoch distillation"""
+
+    #print('train_distill')
+
+    # set modules as train()
+    for module in module_list:
+        module.train()
+
+    if rf_t:
+      module_list[1].eval()
+
+
+    # set teacher as eval()
+    module_list[-1].eval()
+
+
+
+    criterion_cls = criterion_list[0]
+    criterion_div = criterion_list[1]
+    criterion_kd = criterion_list[2]
+
+    model_s = module_list[0]
+    model_t = module_list[-1]
+
+    if rf_t:
+      print('getting rft')
+      model_rf_t= module_list[1]
+
+
+
+    losses = AverageMeter()
+    kd_losses = AverageMeter()
+    top1 = AverageMeter()
+
+    for idx, data in enumerate(train_loader):
+        if distill in ['crd']:
+            input, target, index, contrast_idx = data
+        else:
+            input, target = data
+
+        input = input.float()
+        if torch.cuda.is_available():
+            input = input.cuda()
+            target = target.cuda()
+            if distill in ['crd']:
+                contrast_idx = contrast_idx.cuda()
+                index = index.cuda()
+
+        # ===================forward=====================
+
+        logit_s = model_s(input)
+
+
+
+        with torch.no_grad():
+            logit_t = model_t(input)
+
+        if rf_t and split == "maximize":
+          logit_t = model_rf_t(input)
+
+
+
+
+        # cls + kl div
+        loss_cls = criterion_cls(logit_s, target)
+        loss_div = criterion_div(logit_s, logit_t)
+
+
+        # other kd beyond KL divergence
+        if distill == 'kd':
+            loss_kd = 0
+
+        else:
+            raise NotImplementedError(distill)
+
+        # Here I eliminated the other losses
+
+        if split == "minimize":
+            loss = gamma * loss_cls + alpha * loss_div + beta * loss_kd
+
+        elif split == "maximize":
+            loss = -loss_div
+
+        loss = loss + param_dist(model_s, swa_model, smoothing)
+
+        if split == "minimize":
+
+            losses.update(loss.item(), input.size(0))
+
+
+        elif split == "maximize":
+            kd_losses.update(loss.item(), input.size(0))
+
+
+        # ===================backward=====================
+        optimizer.zero_grad()
+        loss.backward()
+
+        optimizer.step()
+
+
+    if split == "minimize":
+        return losses.avg
+    else:
+        return kd_losses.avg
+
 
 
 
