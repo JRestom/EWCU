@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader
 from torch.nn.functional import cross_entropy
 import numpy as np
 import torch.nn.functional as F
+from torch.utils.data import DataLoader, ConcatDataset, TensorDataset
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -95,7 +96,7 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
-        
+
 class DistillKL(nn.Module):
     """Distilling the Knowledge in a Neural Network"""
     def __init__(self, T):
@@ -189,8 +190,6 @@ def train_distill(epoch, train_loader, module_list, swa_model, criterion_list, o
           logit_t = model_rf_t(input)
 
 
-
-
         # cls + kl div
         loss_cls = criterion_cls(logit_s, target)
         loss_div = criterion_div(logit_s, logit_t)
@@ -234,6 +233,64 @@ def train_distill(epoch, train_loader, module_list, swa_model, criterion_list, o
     else:
         return kd_losses.avg
 
+def UnlearnerLoss_Bad_T(output, labels, full_teacher_logits, unlearn_teacher_logits, KL_temperature):
+    labels = torch.unsqueeze(labels, dim = 1)
+    
+    f_teacher_out = F.softmax(full_teacher_logits / KL_temperature, dim=1)
+    u_teacher_out = F.softmax(unlearn_teacher_logits / KL_temperature, dim=1)
 
+    # label 1 means forget sample
+    # label 0 means retain sample
+    overall_teacher_out = labels * u_teacher_out + (1-labels)*f_teacher_out
+    student_out = F.log_softmax(output / KL_temperature, dim=1)
+    return F.kl_div(student_out, overall_teacher_out)
+
+def unlearning_step(model, unlearning_teacher, full_trained_teacher, unlearn_data_loader, optimizer, 
+            device, KL_temperature):
+    losses = []
+    for batch in unlearn_data_loader:
+        x, y = batch
+        x, y = x.to(device), y.to(device)
+        with torch.no_grad():
+            full_teacher_logits = full_trained_teacher(x)
+            unlearn_teacher_logits = unlearning_teacher(x)
+        output = model(x)
+        optimizer.zero_grad()
+        loss = UnlearnerLoss_Bad_T(output = output, labels=y, full_teacher_logits=full_teacher_logits, 
+                unlearn_teacher_logits=unlearn_teacher_logits, KL_temperature=KL_temperature)
+        loss.backward()
+        optimizer.step()
+        losses.append(loss.detach().cpu().numpy())
+    return np.mean(losses)
+
+
+
+def combine_loaders(forget_loader, retain_loader):
+
+    combined_data = []
+    combined_labels = []
+
+    # Process forget_dataloader and assign label 1
+    for data, _ in forget_loader:
+        combined_data.append(data)
+        combined_labels.append(torch.ones(len(data)))  # Create a tensor of ones
+
+    # Process retain_dataloader and assign label 0
+    for data, _ in retain_loader:
+        combined_data.append(data)
+        combined_labels.append(torch.zeros(len(data)))  # Create a tensor of zeros
+
+    # Concatenate 
+    combined_data = torch.cat(combined_data, dim=0)
+    combined_labels = torch.cat(combined_labels, dim=0)
+
+    # Create a new dataset from the combined data and labels
+    combined_dataset = TensorDataset(combined_data, combined_labels)
+
+    # Create a new dataloader from the combined dataset
+    new_dataloader = DataLoader(combined_dataset, batch_size=256, shuffle=True)
+    return new_dataloader
+
+  
 
 

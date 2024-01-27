@@ -187,3 +187,25 @@ def unlearning_ts(model, retain_loader, forget_loader, validation, epochs=5):
 
     model_s.eval()
     return model_s
+
+
+def blindspot_unlearner(model, unlearning_teacher, full_trained_teacher, combined_loader, epochs = 10,
+                optimizer = 'adam', lr = 0.01, 
+                device = 'cuda', KL_temperature = 1):
+    # creating the unlearning dataset.
+    unlearning_loader = combined_loader
+
+    unlearning_teacher.eval()
+    full_trained_teacher.eval()
+
+    optimizer = optimizer
+    if optimizer == 'adam':
+        optimizer = torch.optim.Adam(model.parameters(), lr = lr)
+
+    for epoch in range(epochs):
+        loss = helpers.unlearning_step(model = model, unlearning_teacher= unlearning_teacher, 
+                        full_trained_teacher=full_trained_teacher, unlearn_data_loader=unlearning_loader, 
+                        optimizer=optimizer, device=device, KL_temperature=KL_temperature)
+        #print("Epoch {} Unlearning Loss {}".format(epoch+1, loss))
+
+    return model
