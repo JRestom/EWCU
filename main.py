@@ -86,147 +86,98 @@ if not os.path.exists(local_path):
 weights_pretrained = torch.load(local_path, map_location=DEVICE)
 
 # load model with pre-trained weights
-model = resnet18(weights=None, num_classes=10)
-model.load_state_dict(weights_pretrained)
-model.to(DEVICE)
-model.eval();
 
-# Orignal model
-print('---------Original model----------')
-print(f"Train set accuracy: {100.0 * accuracy(model, train_loader):0.1f}%")
-print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
-eval_mia(model, train_loader, test_loader, forget_loader)
-print('\n')
+def evaluate(retain_loader, forget_loader, test_loader, methods):
 
-# fine_train = []
-# fine_test = []
-# fine_mia = []
+    for method in methods:
 
-# ewcu_train = []
-# ewcu_test = []
-# ewcu_mia = []
+        if method == 'Original':
+            model = resnet18(weights=None, num_classes=10)
+            model.load_state_dict(weights_pretrained)
+            model.to(DEVICE)
+            model.eval();
+            print('---------Original model----------')
+            print(f"Train set accuracy: {100.0 * accuracy(model, train_loader):0.1f}%")
+            print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
+            eval_mia(model, train_loader, test_loader, forget_loader)
+            print('\n')
 
-# ewcu2_train = []
-# ewcu2_test = []
-# ewcu2_mia = []
+        elif method == 'Finetune':
+            print('---------Finetune model----------')
+            model = resnet18(weights=None, num_classes=10)
+            model.load_state_dict(weights_pretrained)
+            model.to(DEVICE)
+            model = unlearning_finetuning(model, retain_loader, 5)
+            model.eval();
+            print(f"Train set accuracy: {100.0 * accuracy(model, train_loader):0.1f}%")
+            print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
+            eval_mia(model, train_loader, test_loader, forget_loader)
+            print('\n')
 
-# Finetuned
-print('---------Unlearned model Finetuned_----------')
-model = resnet18(weights=None, num_classes=10)
-model.load_state_dict(weights_pretrained)
-model.to(DEVICE)
+        elif method == 'EWCU1':
+            print('---------EWCU1 unlearning----------')
+            model = resnet18(weights=None, num_classes=10)
+            model.load_state_dict(weights_pretrained)
+            model.to(DEVICE)
+            model = unlearning_EWCU(model, retain_loader, forget_loader, 5)
+            model.eval();
+            print(f"Train set accuracy: {100.0 * accuracy(model, train_loader):0.1f}%")
+            print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
+            eval_mia(model, train_loader, test_loader, forget_loader)
+            print('\n')
 
-start_time = time.time()
-model_1 = unlearning_finetuning(model, retain_loader, 5)
-end_time = time.time()
-elapsed_time = end_time - start_time
+        elif method == 'EWCU2':
+            print('---------EWCU2 unlearning----------')
+            model = resnet18(weights=None, num_classes=10)
+            model.load_state_dict(weights_pretrained)
+            model.to(DEVICE)
+            model = unlearning_EWCU_2(model, retain_loader, forget_loader, 5)
+            model.eval();
+            print(f"Train set accuracy: {100.0 * accuracy(model, train_loader):0.1f}%")
+            print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
+            eval_mia(model, train_loader, test_loader, forget_loader)
+            print('\n')
 
-acc_train = accuracy(model_1, train_loader)
-acc_test = accuracy(model_1, test_loader)
-print(f"Elapsed time: {elapsed_time} seconds")
-print(f"Train set accuracy: {100.0 * acc_train:0.1f}%")
-print(f"Test set accuracy: {100.0 * acc_test:0.1f}%")
-e = eval_mia(model_1, train_loader, test_loader, forget_loader)
+        elif method == 'Scrub':
+            print('---------Scrub unlearning----------')
+            model = resnet18(weights=None, num_classes=10)
+            model.load_state_dict(weights_pretrained)
+            model.to(DEVICE)
+            model = unlearning_ts(model, retain_loader, forget_loader, test_loader, epochs=5)
+            model.eval();
+            print(f"Train set accuracy: {100.0 * accuracy(model, train_loader):0.1f}%")
+            print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
+            eval_mia(model, train_loader, test_loader, forget_loader)
+            print('\n')
 
-# fine_train.append(acc_train)
-# fine_test.append(acc_test)
-# fine_mia.append(e)
-print('\n')
+        elif method == 'Bad_T':
+            print('---------Bad Teacher unlearning----------')
+            model = resnet18(weights=None, num_classes=10)
+            model.load_state_dict(weights_pretrained)
+            model.to(DEVICE)
+            
+            unlearning_teacher = resnet18(weights=None, num_classes=10).to(DEVICE)
+            full_trained_teacher = copy.deepcopy(model).to(DEVICE)
+            combined_loader = combine_loaders(forget_loader, retain_loader)
 
-#EWCU
-print('---------Unlearned model EWCU1----------')
-model = resnet18(weights=None, num_classes=10)
-model.load_state_dict(weights_pretrained)
-model.to(DEVICE)
-
-start_time = time.time()
-model_2 = unlearning_EWCU(model, retain_loader, forget_loader, 5)
-end_time = time.time()
-elapsed_time = end_time - start_time
-num_frozen_parameters = count_frozen_parameters(model_2)
-
-print(f"number of frozen parameters: {num_frozen_parameters}")
-print(f"Elapsed time: {elapsed_time} seconds")
-acc_train = accuracy(model_2, train_loader)
-acc_test = accuracy(model_2, test_loader)
-print(f"Elapsed time: {elapsed_time} seconds")
-print(f"Train set accuracy: {100.0 * acc_train:0.1f}%")
-print(f"Test set accuracy: {100.0 * acc_test:0.1f}%")
-e = eval_mia(model_2, train_loader, test_loader, forget_loader)
-
-# ewcu_train.append(acc_train)
-# ewcu_test.append(acc_test)
-# ewcu_mia.append(e)
-print('\n')
-
-# EWCU2
-print('---------Unlearned model EWCU2----------')
-model = resnet18(weights=None, num_classes=10)
-model.load_state_dict(weights_pretrained)
-model.to(DEVICE)
-
-start_time = time.time()
-model_3 = unlearning_EWCU_2(model, retain_loader, forget_loader, 10)
-end_time = time.time()
-elapsed_time = end_time - start_time
-num_frozen_parameters = count_frozen_parameters(model_3)
-
-print(f"number of frozen parameters: {num_frozen_parameters}")
-print(f"Elapsed time: {elapsed_time} seconds")
-acc_train = accuracy(model_3, train_loader)
-acc_test = accuracy(model_3, test_loader)
-print(f"Elapsed time: {elapsed_time} seconds")
-print(f"Train set accuracy: {100.0 * acc_train:0.1f}%")
-print(f"Test set accuracy: {100.0 * acc_test:0.1f}%")
-e = eval_mia(model_3, train_loader, test_loader, forget_loader)
-
-# ewcu2_train.append(acc_train)
-# ewcu2_test.append(acc_test)
-# ewcu2_mia.append(e)
-print('\n')
-
-#SCRUB
-print('---------Unlearned model SCRUB----------')
-model = resnet18(weights=None, num_classes=10)
-model.load_state_dict(weights_pretrained)
-model.to(DEVICE)
-model_4 = unlearning_ts(model, retain_loader, forget_loader, test_loader, epochs=5)
-print(f"Retain set accuracy: {100.0 * accuracy(model_4, retain_loader):0.1f}%")
-print(f"Test set accuracy: {100.0 * accuracy(model_4, test_loader):0.1f}%")
-eval_mia(model_4, train_loader, test_loader, forget_loader)
-
-# Bad-T
-print('---------Unlearned model Bad-T----------')
-model = resnet18(weights=None, num_classes=10)
-model.load_state_dict(weights_pretrained)
-model.to(DEVICE)
-
-unlearning_teacher = resnet18(weights=None, num_classes=10).to(DEVICE)
-full_trained_teacher = copy.deepcopy(model).to(DEVICE)
-combined_loader = combine_loaders(forget_loader, retain_loader)
-
-model_5 = blindspot_unlearner(model, unlearning_teacher, full_trained_teacher, combined_loader, epochs = 5,
+            model = blindspot_unlearner(model, unlearning_teacher, full_trained_teacher, combined_loader, epochs = 5,
                 optimizer = 'adam', lr = 0.01, 
                 device = 'cuda', KL_temperature = 1)
-print(f"Retain set accuracy: {100.0 * accuracy(model_5, retain_loader):0.1f}%")
-print(f"Test set accuracy: {100.0 * accuracy(model_5, test_loader):0.1f}%")
-eval_mia(model_5, train_loader, test_loader, forget_loader)
+            print(f"Retain set accuracy: {100.0 * accuracy(model, retain_loader):0.1f}%")
+            print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
+            eval_mia(model, train_loader, test_loader, forget_loader)
 
 
-# print('---------Finetuned-------------')
-# print(f'train: {np.mean(fine_train)}')
-# print(f'test: {np.mean(fine_test)}')
-# print(f'mia: {np.mean(fine_mia)}')
-# print('\n')
 
-# print('---------EWCU-------------')
-# print(f'train: {np.mean(ewcu_train)}')
-# print(f'test: {np.mean(ewcu_test)}')
-# print(f'mia: {np.mean(ewcu_mia)}')
-# print('\n')
 
-# print('---------EWCU2-------------')
-# print(f'train: {np.mean(ewcu2_train)}')
-# print(f'test: {np.mean(ewcu2_test)}')
-# print(f'mia: {np.mean(ewcu2_mia)}')
-# print('\n')
+methods = ['Original', 'Finetune', 'EWCU1', 'EWCU2', 'Scrub', 'Bad_T']
+evaluate(retain_loader, forget_loader, test_loader, methods)
+
+
+
+
+
+
+
+
+
