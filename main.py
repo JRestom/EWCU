@@ -9,7 +9,7 @@ import subprocess
 import requests
 from evaluation import accuracy, eval_mia, simple_mia, compute_losses
 from methods import unlearning_finetuning
-from methods import unlearning_EWCU, unlearning_EWCU_2, unlearning_ts, blindspot_unlearner
+from methods import unlearning_EWCU, unlearning_EWCU_2, unlearning_ts, blindspot_unlearner, fisher_scrub
 import time
 from helpers import count_frozen_parameters, aggregatedEFIM, EFIM, combine_loaders
 import copy
@@ -167,11 +167,24 @@ def evaluate(retain_loader, forget_loader, test_loader, methods):
             print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
             eval_mia(model, train_loader, test_loader, forget_loader)
 
+        elif method == 'Fisher_Scrub':
+            print('---------Fisher_Scrub----------')
+            model = resnet18(weights=None, num_classes=10)
+            model.load_state_dict(weights_pretrained)
+            model.to(DEVICE)
+            model = fisher_scrub(model, retain_loader, forget_loader, test_loader, epochs=5)
+            model.eval();
+            print(f"Train set accuracy: {100.0 * accuracy(model, train_loader):0.1f}%")
+            print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
+            eval_mia(model, train_loader, test_loader, forget_loader)
+            print('\n')
 
 
+# methods = ['Original', 'Finetune', 'EWCU1', 'EWCU2', 'Scrub', 'Bad_T']
+methods = ['Scrub','EWCU2', 'Fisher_Scrub']
 
-methods = ['Original', 'Finetune', 'EWCU1', 'EWCU2', 'Scrub', 'Bad_T']
-evaluate(retain_loader, forget_loader, test_loader, methods)
+for i in range(3):
+    evaluate(retain_loader, forget_loader, test_loader, methods)
 
 
 
