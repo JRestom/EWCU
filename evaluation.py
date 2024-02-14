@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import numpy as np
 from sklearn import linear_model, model_selection
-
+import torch.nn.functional as F
 
 
 
@@ -84,3 +84,20 @@ def accuracy(model, loader):
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
     return correct / total
+
+
+# Adding KL-divergence as a new metric for unlearning
+def compute_kl_divergence(model1, model2, dataloader):
+    model1.eval()
+    model2.eval()
+    total_kl_div = 0.0
+
+    with torch.no_grad():
+        for inputs, _ in dataloader:
+            inputs = inputs.to(DEVICE)
+            log_probs1 = F.log_softmax(model1(inputs), dim=1)
+            probs2 = F.softmax(model2(inputs), dim=1)
+            kl_div = F.kl_div(log_probs1, probs2, reduction='batchmean')
+            total_kl_div += kl_div.item() * inputs.size(0)
+
+    return total_kl_div / len(dataloader.dataset)

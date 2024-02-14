@@ -7,12 +7,14 @@ import numpy as np
 import os
 import subprocess
 import requests
-from evaluation import accuracy, eval_mia, simple_mia, compute_losses
+from evaluation import accuracy, eval_mia, simple_mia, compute_losses, compute_kl_divergence
 from methods import unlearning_finetuning
-from methods import unlearning_EWCU, unlearning_EWCU_2, unlearning_ts, blindspot_unlearner, fisher_scrub
+from methods import unlearning_EWCU, unlearning_EWCU_2, unlearning_ts, blindspot_unlearner, fisher_scrub, cf_k
 import time
 from helpers import count_frozen_parameters, aggregatedEFIM, EFIM, combine_loaders
 import copy
+from torch import nn
+
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -87,7 +89,23 @@ weights_pretrained = torch.load(local_path, map_location=DEVICE)
 
 # load model with pre-trained weights
 
-def evaluate(retain_loader, forget_loader, test_loader, methods):
+def evaluate_method(model,train_loader, test_loader, forget_loader):
+
+    retrained_model = resnet18(weights=None, num_classes=10)
+    retrained_model.load_state_dict(torch.load('retrained_weights.pth'))
+    retrained_model = retrained_model.cuda()
+    kl = compute_kl_divergence(retrained_model, model, test_loader)
+
+    print(f"Train set accuracy: {100.0 * accuracy(model, train_loader):0.1f}%")
+    print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
+    eval_mia(model, train_loader, test_loader, forget_loader)
+    print(f'KL-Div w.r.t Retrained model: {kl}')
+    print('\n')
+
+
+
+
+def evaluate_all(retain_loader, forget_loader, test_loader, methods):
 
     for method in methods:
 
@@ -97,10 +115,7 @@ def evaluate(retain_loader, forget_loader, test_loader, methods):
             model.to(DEVICE)
             model.eval();
             print('---------Original model----------')
-            print(f"Train set accuracy: {100.0 * accuracy(model, train_loader):0.1f}%")
-            print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
-            eval_mia(model, train_loader, test_loader, forget_loader)
-            print('\n')
+            evaluate_method(model,train_loader, test_loader, forget_loader)
 
         elif method == 'Finetune':
             print('---------Finetune model----------')
@@ -109,10 +124,7 @@ def evaluate(retain_loader, forget_loader, test_loader, methods):
             model.to(DEVICE)
             model = unlearning_finetuning(model, retain_loader, 5)
             model.eval();
-            print(f"Train set accuracy: {100.0 * accuracy(model, train_loader):0.1f}%")
-            print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
-            eval_mia(model, train_loader, test_loader, forget_loader)
-            print('\n')
+            evaluate_method(model,train_loader, test_loader, forget_loader)
 
         elif method == 'EWCU1':
             print('---------EWCU1 unlearning----------')
@@ -121,10 +133,7 @@ def evaluate(retain_loader, forget_loader, test_loader, methods):
             model.to(DEVICE)
             model = unlearning_EWCU(model, retain_loader, forget_loader, 5)
             model.eval();
-            print(f"Train set accuracy: {100.0 * accuracy(model, train_loader):0.1f}%")
-            print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
-            eval_mia(model, train_loader, test_loader, forget_loader)
-            print('\n')
+            evaluate_method(model,train_loader, test_loader, forget_loader)
 
         elif method == 'EWCU2':
             print('---------EWCU2 unlearning----------')
@@ -133,10 +142,7 @@ def evaluate(retain_loader, forget_loader, test_loader, methods):
             model.to(DEVICE)
             model = unlearning_EWCU_2(model, retain_loader, forget_loader, 5)
             model.eval();
-            print(f"Train set accuracy: {100.0 * accuracy(model, train_loader):0.1f}%")
-            print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
-            eval_mia(model, train_loader, test_loader, forget_loader)
-            print('\n')
+            evaluate_method(model,train_loader, test_loader, forget_loader)
 
         elif method == 'Scrub':
             print('---------Scrub unlearning----------')
@@ -145,10 +151,7 @@ def evaluate(retain_loader, forget_loader, test_loader, methods):
             model.to(DEVICE)
             model = unlearning_ts(model, retain_loader, forget_loader, test_loader, epochs=5)
             model.eval();
-            print(f"Train set accuracy: {100.0 * accuracy(model, train_loader):0.1f}%")
-            print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
-            eval_mia(model, train_loader, test_loader, forget_loader)
-            print('\n')
+            evaluate_method(model,train_loader, test_loader, forget_loader)
 
         elif method == 'Bad_T':
             print('---------Bad Teacher unlearning----------')
@@ -163,9 +166,7 @@ def evaluate(retain_loader, forget_loader, test_loader, methods):
             model = blindspot_unlearner(model, unlearning_teacher, full_trained_teacher, combined_loader, epochs = 5,
                 optimizer = 'adam', lr = 0.01, 
                 device = 'cuda', KL_temperature = 1)
-            print(f"Retain set accuracy: {100.0 * accuracy(model, retain_loader):0.1f}%")
-            print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
-            eval_mia(model, train_loader, test_loader, forget_loader)
+            evaluate_method(model,train_loader, test_loader, forget_loader)
 
         elif method == 'Fisher_Scrub':
             print('---------Fisher_Scrub----------')
@@ -174,17 +175,22 @@ def evaluate(retain_loader, forget_loader, test_loader, methods):
             model.to(DEVICE)
             model = fisher_scrub(model, retain_loader, forget_loader, test_loader, epochs=5)
             model.eval();
-            print(f"Train set accuracy: {100.0 * accuracy(model, train_loader):0.1f}%")
-            print(f"Test set accuracy: {100.0 * accuracy(model, test_loader):0.1f}%")
-            eval_mia(model, train_loader, test_loader, forget_loader)
-            print('\n')
+            evaluate_method(model,train_loader, test_loader, forget_loader)
+
+        elif method == 'CF_K':
+            print('---------CF_K----------')
+            model = resnet18(weights=None, num_classes=10)
+            model.load_state_dict(weights_pretrained)
+            model.to(DEVICE)
+            model = cf_k(model, retain_loader, epochs=5)
+            model.eval();
+            evaluate_method(model,train_loader, test_loader, forget_loader)
 
 
-# methods = ['Original', 'Finetune', 'EWCU1', 'EWCU2', 'Scrub', 'Bad_T']
-methods = ['Scrub','EWCU2', 'Fisher_Scrub']
+# methods = ['Original','Finetune','EWCU1','EWCU2', 'Scrub','Bad_T', 'CF_K']
+methods = ['CF_K']
+evaluate_all(retain_loader, forget_loader, test_loader, methods)
 
-for i in range(3):
-    evaluate(retain_loader, forget_loader, test_loader, methods)
 
 
 

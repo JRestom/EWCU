@@ -292,3 +292,46 @@ def blindspot_unlearner(model, unlearning_teacher, full_trained_teacher, combine
         #print("Epoch {} Unlearning Loss {}".format(epoch+1, loss))
 
     return model
+
+def cf_k(model, retain_loader, epochs=5):
+
+    criterion = torch.nn.CrossEntropyLoss()
+    optimizer = torch.optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=0.001)
+
+    # Freeze all the parameters.
+    for param in model.parameters():
+        param.requires_grad = False
+
+    # Only unfreeze the last three layers for the fine-tuning.
+    for param in model.layer3.parameters():
+        param.requires_grad = True
+    for param in model.layer4.parameters():
+        param.requires_grad = True
+    for param in model.avgpool.parameters():
+        param.requires_grad = True
+    for param in model.fc.parameters():
+        param.requires_grad = True
+
+    num_epochs = epochs
+
+    for epoch in range(num_epochs):
+        running_loss = 0
+
+        for batch_idx, (x_retain, y_retain) in enumerate(retain_loader):
+            y_retain = y_retain.cuda()
+
+            # Classification Loss
+            outputs_retain = model(x_retain.cuda())
+            classification_loss = criterion(outputs_retain, y_retain)
+
+            optimizer.zero_grad()
+            classification_loss.backward()
+            optimizer.step()
+
+            running_loss += classification_loss.item() * x_retain.size(0)
+            print(f"Epoch [{epoch+1}/{num_epochs}], Batch [{batch_idx+1}/{len(retain_loader)}] - Batch Loss: {classification_loss.item():.4f}")
+
+        average_epoch_loss = running_loss / (len(retain_loader) * x_retain.size(0))
+        print(f"Epoch [{epoch+1}/{num_epochs}] - Total Loss: {running_loss:.4f}")
+
+    return model
