@@ -9,7 +9,7 @@ import subprocess
 import requests
 from evaluation import accuracy, eval_mia, simple_mia, compute_losses, compute_kl_divergence
 from methods import unlearning_finetuning
-from methods import unlearning_EWCU, unlearning_EWCU_2, unlearning_ts, blindspot_unlearner, fisher_scrub, cf_k, neg_grad
+from methods import unlearning_EWCU, unlearning_EWCU_2, unlearning_ts, blindspot_unlearner, fisher_scrub, cf_k, neg_grad, advanced_neg_grad
 import time
 from helpers import count_frozen_parameters, aggregatedEFIM, EFIM, combine_loaders
 import copy
@@ -195,9 +195,18 @@ def evaluate_all(retain_loader, forget_loader, test_loader, methods):
             model.eval();
             evaluate_method(model,train_loader, test_loader, forget_loader)
 
+        elif method == 'Advanced_Neg_grad':
+            print('---------Advanced_Neg_grad----------')
+            model = resnet18(weights=None, num_classes=10)
+            model.load_state_dict(weights_pretrained)
+            model.to(DEVICE)
+            model = advanced_neg_grad(model, retain_loader, forget_loader, epochs=5)
+            model.eval();
+            evaluate_method(model,train_loader, test_loader, forget_loader)
 
-# methods = ['Original','Finetune','EWCU1','EWCU2', 'Scrub','Bad_T', 'CF_K']
-methods = ['Neg_grad']
+
+# methods = ['Original','Finetune','EWCU1','EWCU2', 'Scrub','Bad_T', 'CF_K','Neg_grad']
+methods = ['Advanced_Neg_grad']
 evaluate_all(retain_loader, forget_loader, test_loader, methods)
 
 

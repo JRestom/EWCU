@@ -374,3 +374,47 @@ def neg_grad(model, retain_loader, forget_loader, epochs=5):
         print(f"Epoch [{epoch+1}/{num_epochs}] - Total Loss: {running_loss:.4f}")
 
     return model
+
+def advanced_neg_grad(model, retain_loader, forget_loader, epochs=5):
+    criterion = torch.nn.CrossEntropyLoss()
+    optimizer = optim.SGD(model.parameters(), lr=0.0001)
+
+    dataloader_iterator = iter(forget_loader)
+
+    num_epochs = epochs
+    for epoch in range(num_epochs):
+        running_loss = 0
+
+        for batch_idx, (x_retain, y_retain) in enumerate(retain_loader):
+            y_retain = y_retain.cuda()
+
+            try:
+                (x_forget, y_forget) = next(dataloader_iterator)
+            except StopIteration:
+                dataloader_iterator = iter(forget_loader)
+                (x_forget, y_forget) = next(dataloader_iterator)
+
+            if x_forget.size(0) != x_retain.size(0):
+                continue
+
+            outputs_retain = model(x_retain.cuda())
+            outputs_forget = model(x_forget.cuda())
+
+            loss_ascent_forget = -criterion(outputs_forget, y_forget.cuda())
+            loss_retain = criterion(outputs_retain, y_retain.cuda())
+
+            # Overall loss
+            joint_loss = loss_ascent_forget + loss_retain
+
+            print("joint loss :", joint_loss.item())
+            optimizer.zero_grad()
+            joint_loss.backward()
+            optimizer.step()
+
+            running_loss += joint_loss.item() * x_retain.size(0)
+            print(f"Epoch [{epoch+1}/{num_epochs}], Batch [{batch_idx+1}/{len(retain_loader)}] - Batch Loss: {joint_loss.item():.4f}")
+
+        average_epoch_loss = running_loss / (len(retain_loader) * x_retain.size(0))
+        print(f"Epoch [{epoch+1}/{num_epochs}] - Total Loss: {running_loss:.4f}")
+
+    return model
