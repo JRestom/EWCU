@@ -291,6 +291,17 @@ def combine_loaders(forget_loader, retain_loader):
     new_dataloader = DataLoader(combined_dataset, batch_size=256, shuffle=True)
     return new_dataloader
 
-  
+class Noise(nn.Module):
+    def __init__(self, batch_size, *dim):
+        super().__init__()
+        self.noise = nn.Parameter(torch.randn(batch_size, *dim), requires_grad=True)
+
+    def forward(self):
+        return self.noise
+
+def float_to_uint8(img_float):
+    """Convert a floating point image in the range [0,1] to uint8 image in the range [0,255]."""
+    img_uint8 = (img_float * 255).astype(np.uint8)
+    return img_uint8
 
 

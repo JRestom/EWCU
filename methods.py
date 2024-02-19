@@ -6,6 +6,9 @@ from torch.utils.data import DataLoader
 import numpy as np
 import copy
 import torch.backends.cudnn as cudnn
+import torchvision.transforms.functional as TF
+import torch.nn.functional as F
+import matplotlib.pyplot as plt
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -416,5 +419,114 @@ def advanced_neg_grad(model, retain_loader, forget_loader, epochs=5):
 
         average_epoch_loss = running_loss / (len(retain_loader) * x_retain.size(0))
         print(f"Epoch [{epoch+1}/{num_epochs}] - Total Loss: {running_loss:.4f}")
+
+    return model
+
+
+def unsir(model, retain_loader, forget_loader, epochs=5):
+    criterion = torch.nn.CrossEntropyLoss()
+    optimizer = optim.SGD(model.parameters(), lr=0.001)
+
+    print_interval = 1
+    train_epoch_losses = []
+
+    num_epochs = epochs
+    for epoch in range(num_epochs):
+        running_loss = 0
+
+        for batch_idx, ((x_retain, y_retain), (x_forget, y_forget)) in enumerate(zip(retain_loader, forget_loader)):
+            y_retain = y_retain.cuda()
+            batch_size_forget = y_forget.size(0)
+
+            if x_retain.size(0) != 64 or x_forget.size(0) != 64:
+                continue
+
+            # Initialize the noise.
+            noise_dim = x_retain.size(1), x_retain.size(2), x_retain.size(3)
+            noise = helpers.Noise(batch_size_forget, *noise_dim).cuda()
+            noise_optimizer = torch.optim.Adam(noise.parameters(), lr=0.01)
+            noise_tensor = noise()[:batch_size_forget]
+
+            # Update the noise for increasing the loss value.
+            for _ in range(5):
+                outputs = model(noise_tensor)
+                with torch.no_grad():
+                    target_logits = model(x_forget.cuda())
+                # Maximize the similarity between noise data and forget features.
+                loss_noise = -F.mse_loss(outputs, target_logits)
+
+                # Backpropagate to update the noise.
+                noise_optimizer.zero_grad()
+                loss_noise.backward(retain_graph=True)
+                noise_optimizer.step()
+
+            # Train the model with noise and retain image
+            noise_tensor = torch.clamp(noise_tensor, 0, 1).detach().cuda()
+            outputs = ModuleNotFoundError(noise_tensor.cuda())
+            loss_1 = criterion(outputs, y_retain)
+
+            outputs = model(x_retain.cuda())
+            loss_2 = criterion(outputs, y_retain)
+
+            joint_loss = loss_1 + loss_2
+
+            optimizer.zero_grad()
+            joint_loss.backward()
+            optimizer.step()
+            running_loss += joint_loss.item() * x_retain.size(0)
+
+            
+            original_image = x_retain[0].cpu().numpy().transpose(1, 2, 0)
+            image1 = TF.to_pil_image(float_to_uint8(original_image))
+            image2 = TF.to_pil_image(noise.noise[0].cpu())
+
+            # Display original image.
+            original_image = x_retain[0].cpu().numpy().transpose(1, 2, 0)
+            plt.figure(figsize=(12, 8))
+            plt.subplot(1, 2, 1)  # 2 rows, 2 columns, position 1
+            plt.imshow(image1)
+            plt.title("Original Image")
+            plt.axis('off')
+
+            # Display first noise image.
+            plt.subplot(1, 2, 2)
+            plt.imshow(image2)
+            plt.title("Noise Image")
+            plt.axis('off')
+
+            # Show all the subplots.
+            plt.tight_layout()
+            plt.show()
+
+
+            if batch_idx % print_interval == 0:
+                print(f"Epoch [{epoch+1}/{num_epochs}], Batch [{batch_idx+1}/{len(retain_loader)}] - Batch Loss: {joint_loss.item():.4f}")
+
+        average_train_loss = running_loss / (len(retain_loader) * x_retain.size(0))
+        train_epoch_losses.append(average_train_loss)
+        print(f"Epoch [{epoch+1}/{num_epochs}] - Train Loss: {average_train_loss:.4f}")
+    
+    print('------------Finished Unsir Stage 1--------------------')
+
+    # num_epochs = 1
+    # for epoch in range(num_epochs):
+    #     running_loss = 0
+
+    #     for batch_idx, (x_retain, y_retain) in enumerate(retain_loader):
+    #         y_retain = y_retain.cuda()
+
+    #         # Classification Loss
+    #         outputs_retain = model(x_retain.cuda())
+    #         classification_loss = criterion(outputs_retain, y_retain)
+
+    #         optimizer.zero_grad()
+    #         classification_loss.backward()
+    #         optimizer.step()
+
+    #         running_loss += classification_loss.item() * x_retain.size(0)
+    #         print(f"Epoch [{epoch+1}/{num_epochs}], Batch [{batch_idx+1}/{len(retain_loader)}] - Batch Loss: {classification_loss.item():.4f}")
+
+    #     average_epoch_loss = running_loss / (len(retain_loader) * x_retain.size(0))
+    #     print(f"Epoch [{epoch+1}/{num_epochs}] - Total Loss: {running_loss:.4f}")
 
     return model
