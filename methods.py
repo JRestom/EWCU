@@ -81,7 +81,7 @@ def unlearning_EWCU(model, retain, forget, epochs, threshold=0.00001):
     model.eval()
     return model
 
-def unlearning_EWCU_2(model, retain, forget, epochs, threshold=0.02):
+def unlearning_EWCU_2(model, retain, forget, epochs, threshold=0.031):
     epochs = epochs
 
     criterion = nn.CrossEntropyLoss()
@@ -113,7 +113,7 @@ def unlearning_EWCU_2(model, retain, forget, epochs, threshold=0.02):
     model.eval()
     return model
 
-def fisher_scrub(model, retain_loader, forget_loader, validation, epochs=5, threshold = 0.02):
+def fisher_scrub(model, retain_loader, forget_loader, validation, epochs=5, threshold = 0.01):
     model_t = copy.deepcopy(model)
     model_s = model
 
@@ -214,7 +214,7 @@ def unlearning_ts(model, retain_loader, forget_loader, validation, epochs=5):
     kd_T = 4
     distill = 'kd'
 
-    sgda_epochs = epochs # This is larger than what is set for the competition
+    sgda_epochs = epochs
     sgda_learning_rate = 0.0005
     sgda_learning_rate_min = 0.00005
 
@@ -275,7 +275,7 @@ def unlearning_ts(model, retain_loader, forget_loader, validation, epochs=5):
     return model_s
 
 
-def blindspot_unlearner(model, unlearning_teacher, full_trained_teacher, combined_loader, epochs = 10,
+def blindspot_unlearner(model, unlearning_teacher, full_trained_teacher, combined_loader, epochs = 5,
                 optimizer = 'adam', lr = 0.01, 
                 device = 'cuda', KL_temperature = 1):
     # creating the unlearning dataset.
@@ -299,23 +299,27 @@ def blindspot_unlearner(model, unlearning_teacher, full_trained_teacher, combine
 def cf_k(model, retain_loader, epochs=5):
 
     criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=0.001)
-
+    optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    
     # Freeze all the parameters.
     for param in model.parameters():
         param.requires_grad = False
 
     # Only unfreeze the last three layers for the fine-tuning.
-    for param in model.layer3.parameters():
-        param.requires_grad = True
-    for param in model.layer4.parameters():
-        param.requires_grad = True
+    # for param in model.layer2.parameters():
+    #     param.requires_grad = True
+    # for param in model.layer3.parameters():
+    #     param.requires_grad = True
+    # for param in model.layer4.parameters():
+    #     param.requires_grad = True
     for param in model.avgpool.parameters():
         param.requires_grad = True
     for param in model.fc.parameters():
         param.requires_grad = True
 
     num_epochs = epochs
+
 
     for epoch in range(num_epochs):
         running_loss = 0
@@ -332,10 +336,10 @@ def cf_k(model, retain_loader, epochs=5):
             optimizer.step()
 
             running_loss += classification_loss.item() * x_retain.size(0)
-            print(f"Epoch [{epoch+1}/{num_epochs}], Batch [{batch_idx+1}/{len(retain_loader)}] - Batch Loss: {classification_loss.item():.4f}")
-
-        average_epoch_loss = running_loss / (len(retain_loader) * x_retain.size(0))
-        print(f"Epoch [{epoch+1}/{num_epochs}] - Total Loss: {running_loss:.4f}")
+            # print(f"Epoch [{epoch+1}/{num_epochs}], Batch [{batch_idx+1}/{len(retain_loader)}] - Batch Loss: {classification_loss.item():.4f}")
+        #scheduler.step() #I added this
+    #     average_epoch_loss = running_loss / (len(retain_loader) * x_retain.size(0))
+    #     print(f"Epoch [{epoch+1}/{num_epochs}] - Total Loss: {running_loss:.4f}")
 
     return model
 
@@ -530,3 +534,45 @@ def unsir(model, retain_loader, forget_loader, epochs=5):
     #     print(f"Epoch [{epoch+1}/{num_epochs}] - Total Loss: {running_loss:.4f}")
 
     return model
+
+
+def ZS_EWCU(model, forget, threshold=1e-6, mode='noise'):
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
+    model.train()
+
+    
+    efim = helpers.EFIM(model, forget)
+
+    count_above_threshold = sum(torch.sum(param > threshold).item() for param in efim.values())
+    print(f"Number of weights above threshold: {count_above_threshold}")
+    
+    if mode=='zero':
+        counter = 0
+        
+        for (name, efim_param), (model_name, model_param) in zip(efim.items(), model.named_parameters()):
+            mask = efim_param > threshold
+            zeros_before = torch.sum(model_param.data == 0.0)
+            model_param.data[mask] = 0.0
+            zeros_after = torch.sum(model_param.data == 0.0)
+            counter += (zeros_after - zeros_before).item()
+
+        print(f"Total parameters set to zero: {counter}")
+
+    elif mode=='noise':
+        noise_added_count = 0
+        noise_reduction_factor = 0.1
+        for (name, efim_param), (model_name, model_param) in zip(efim.items(), model.named_parameters()):
+            mask = efim_param > threshold
+            # Use the absolute value of the parameters as the scale for the standard deviation
+            scaled_std = torch.abs(model_param.data) * noise_reduction_factor
+            noise = torch.randn_like(model_param.data) * scaled_std
+            model_param.data[mask] += noise[mask]
+            noise_added_count += mask.sum().item()
+
+        print(f"Number of parameters with noise added: {noise_added_count}")
+
+    return model
+
+

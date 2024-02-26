@@ -4,3 +4,4 @@ forget_idx.npy
 weights_resnet18_cifar10.pth
 retrained_weights.pth
 Other_repos
+*.pdf

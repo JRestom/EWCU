@@ -9,20 +9,27 @@ import subprocess
 import requests
 from evaluation import accuracy, eval_mia, simple_mia, compute_losses, compute_kl_divergence
 from methods import unlearning_finetuning
-from methods import unlearning_EWCU, unlearning_EWCU_2, unlearning_ts, blindspot_unlearner, fisher_scrub, cf_k, neg_grad, advanced_neg_grad, unsir
+from methods import unlearning_EWCU, unlearning_EWCU_2, unlearning_ts, blindspot_unlearner, fisher_scrub, cf_k, neg_grad, advanced_neg_grad, unsir, ZS_EWCU
 import time
 from helpers import count_frozen_parameters, aggregatedEFIM, EFIM, combine_loaders
 import copy
 from torch import nn
+import random
 
-
+seed = 42
+torch.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)  # For CUDA
+np.random.seed(seed)
+random.seed(seed)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print("Running on device:", DEVICE.upper())
 
 # manual random seed is used for dataset partitioning
 # to ensure reproducible results across runs
-RNG = torch.Generator().manual_seed(42)
+RNG = torch.Generator().manual_seed(seed)
 
 # download and pre-process CIFAR10
 normalize = transforms.Compose(
@@ -213,9 +220,18 @@ def evaluate_all(retain_loader, forget_loader, test_loader, methods):
             model.eval();
             evaluate_method(model,train_loader, test_loader, forget_loader)
 
+        elif method == 'Zero_Shot_EWCU':
+            print('---------Zero_Shot_EWCU----------')
+            model = resnet18(weights=None, num_classes=10)
+            model.load_state_dict(weights_pretrained)
+            model.to(DEVICE)
+            model = ZS_EWCU(model, forget_loader)
+            model.eval();
+            evaluate_method(model,train_loader, test_loader, forget_loader)
+
 
 # methods = ['Original','Finetune','EWCU1','EWCU2', 'Scrub','Bad_T', 'CF_K','Neg_grad', 'Advanced_Neg_grad']
-methods = ['Unsir']
+methods = ['Advanced_Neg_grad']
 evaluate_all(retain_loader, forget_loader, test_loader, methods)
 
 
