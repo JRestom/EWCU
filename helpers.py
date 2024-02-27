@@ -7,39 +7,38 @@ import numpy as np
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, ConcatDataset, TensorDataset
 
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 def EFIM(model, data_loader):
-  # Initialize EFIM dictionary with zeros for each learnable parameter
-  efim = {name: torch.zeros_like(param, device=param.device)
-          for name, param in model.named_parameters() if param.requires_grad}
+    # Initialize EFIM dictionary with zeros for each learnable parameter
+    efim = {name: torch.zeros_like(param, device=param.device)
+            for name, param in model.named_parameters() if param.requires_grad}
 
-  model.to(DEVICE)
-  model.train()
+    model.to(device)
+    model.train()
 
-  # Accumulate the squared gradients over all batches
-  for inputs, targets in data_loader:
-      inputs, targets = inputs.to(DEVICE), targets.to(DEVICE)
+    # Accumulate the squared gradients over all batches
+    for inputs, targets in data_loader:
+        inputs, targets = inputs.to(device), targets.to(device)
 
-      model.zero_grad()
-      outputs = model(inputs)
-      loss = cross_entropy(outputs, targets)
-      loss.backward()
-
-
-      for name, param in model.named_parameters():
-          if param.grad is not None:
-             efim[name] += param.grad.data ** 2
-             #efim[name] += param.grad
-
-  # Average over the number of data points
-  num_data_points = len(data_loader.dataset)
-  for name in efim:
-      efim[name] /= num_data_points
+        model.zero_grad()
+        outputs = model(inputs)
+        loss = cross_entropy(outputs, targets)
+        loss.backward()
 
 
-  return efim
+        for name, param in model.named_parameters():
+            if param.grad is not None:
+                efim[name] += param.grad.data ** 2
+                #efim[name] += param.grad
+
+    # Average over the number of data points
+    num_data_points = len(data_loader.dataset)
+    for name in efim:
+        efim[name] /= num_data_points
+
+    return efim
 
 def get_parameters_with_small_norm(efim, threshold):
     """Get parameters with a norm smaller than the threshold."""
